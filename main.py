@@ -172,8 +172,9 @@ class OrderCard(QFrame):
         self.setLayout(self.main_layout)
         
     def mouseDoubleClickEvent(self, event):
-        dialog = OrderDetailsDialog(self.order_data, self)
-        dialog.exec()
+        # فتح نافذة تفاصيل الطلب
+        details_dialog = OrderDetailsDialog(self.order_data['ID'], self.db)
+        details_dialog.exec()
         
     def contextMenuEvent(self, event):
         context_menu = QMenu(self)
