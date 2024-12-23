@@ -7,6 +7,8 @@ from PyQt6.QtGui import QAction, QFont
 from database import Database
 from config import STATUS_COLORS, STATUS_TRANSLATIONS, STATUS_LIGHT_COLORS
 from order_details import OrderDetailsDialog
+import json
+import os
 
 class OrdersUpdateThread(QThread):
     orders_updated = pyqtSignal(list)
@@ -73,52 +75,57 @@ class OrderCard(QFrame):
         self.available_statuses = available_statuses
         self.db = Database()
         self.main_layout = None
+        self.selected = False
+        self.load_selection_state()
+        
+        # تطبيق ستايل الكرت
+        self.setStyleSheet("""
+            QFrame {
+                background-color: white;
+                border-radius: 4px;
+                margin: 4px;
+            }
+            QFrame:hover {
+                background-color: #f8f9fa;
+            }
+            QLabel#selectionCircle {
+                min-width: 20px;
+                min-height: 20px;
+                max-width: 20px;
+                max-height: 20px;
+                border-radius: 10px;
+                border: 2px solid #ddd;
+                background-color: white;
+            }
+            QLabel#selectionCircle[selected="true"] {
+                background-color: #28a745;
+                border-color: #28a745;
+            }
+        """)
+        
         self.setup_ui()
         
     def setup_ui(self):
-        self.setFrameStyle(QFrame.Shape.NoFrame)
-        status = self.order_data['Accept_Reject']
+        # الحاوية الرئيسية
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
         
-        # إعادة تعيين الستايل للبطاقة
-        self.setStyleSheet(f"""
-            QFrame {{
-                background-color: white;
-                border-radius: 4px;
-                margin: 2px 6px;
-            }}
-            QFrame:hover {{
-                background-color: #fafafa;
-            }}
-        """)
+        # دائرة التحديد
+        self.selection_circle = QLabel()
+        self.selection_circle.setObjectName("selectionCircle")
+        self.selection_circle.setProperty("selected", "true" if self.selected else "false")
         
-        # إزالة التخطيط القديم إذا وجد
-        if self.main_layout:
-            # إزالة كل العناصر من التخطيط
-            while self.main_layout.count():
-                item = self.main_layout.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
-            # إزالة التخطيط نفسه
-            QWidget().setLayout(self.main_layout)
+        # إضافة padding للدائرة
+        circle_container = QWidget()
+        circle_layout = QHBoxLayout(circle_container)
+        circle_layout.setContentsMargins(10, 0, 0, 0)
+        circle_layout.addWidget(self.selection_circle)
         
-        # إنشاء تخطيط جديد
-        self.main_layout = QHBoxLayout()
-        self.main_layout.setContentsMargins(0, 0, 0, 0)
-        self.main_layout.setSpacing(0)
+        main_layout.addWidget(circle_container)
         
-        # شريط الحالة الجانبي
-        status_bar = QFrame()
-        status_bar.setFixedWidth(3)
-        status_bar.setStyleSheet(f"""
-            background-color: {STATUS_COLORS.get(status, '#ddd')};
-            border-top-right-radius: 4px;
-            border-bottom-right-radius: 4px;
-        """)
-        self.main_layout.addWidget(status_bar)
-        
-        # محتوى البطاقة
-        content = QWidget()
-        content_layout = QVBoxLayout()
+        # محتوى الكرت
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
         content_layout.setContentsMargins(10, 8, 10, 8)
         content_layout.setSpacing(4)
         
@@ -166,6 +173,7 @@ class OrderCard(QFrame):
         status_layout.addStretch()
         
         # الحالة - عامود 2
+        status = self.order_data['Accept_Reject']
         status_text = STATUS_TRANSLATIONS.get(status, status)
         status_label = QLabel(status_text)
         status_label.setStyleSheet(f"""
@@ -204,14 +212,30 @@ class OrderCard(QFrame):
         # المجموعات (إذا وجدت)
         if self.order_data.get('custom_groups'):
             groups = self.order_data['custom_groups'].split(',')
-            groups_label = QLabel(" • ".join(groups))
-            groups_label.setStyleSheet("color: #666; font-size: 8pt;")
-            content_layout.addWidget(groups_label)
+            colors = self.order_data['group_colors'].split(',') if self.order_data.get('group_colors') else []
+            
+            groups_layout = QHBoxLayout()
+            for i, group in enumerate(groups):
+                color = colors[i] if i < len(colors) else '#666'
+                dot = QLabel('•')
+                dot.setStyleSheet(f'color: {color}; font-size: 14pt; padding: 0 2px;')
+                groups_layout.addWidget(dot)
+                
+                group_label = QLabel(group.strip())
+                group_label.setStyleSheet('color: #666; font-size: 9pt;')
+                groups_layout.addWidget(group_label)
+            
+            groups_layout.addStretch()
+            content_layout.addLayout(groups_layout)
         
-        content.setLayout(content_layout)
-        self.main_layout.addWidget(content)
+        main_layout.addWidget(content_widget)
         
-        self.setLayout(self.main_layout)
+        self.setLayout(main_layout)
+        
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.toggle_selection()
+        super().mousePressEvent(event)
         
     def mouseDoubleClickEvent(self, event):
         # فتح نافذة تفاصيل الطلب
@@ -240,6 +264,37 @@ class OrderCard(QFrame):
                 context_menu.addAction(action)
             
         context_menu.exec(event.globalPos())
+    
+    def toggle_selection(self):
+        self.selected = not self.selected
+        self.selection_circle.setProperty("selected", "true" if self.selected else "false")
+        self.selection_circle.style().unpolish(self.selection_circle)
+        self.selection_circle.style().polish(self.selection_circle)
+        self.save_selection_state()
+        
+    def load_selection_state(self):
+        try:
+            if os.path.exists('selected_cards.json'):
+                with open('selected_cards.json', 'r') as f:
+                    selections = json.load(f)
+                    self.selected = selections.get(str(self.order_data['ID']), False)
+        except Exception as e:
+            print(f"Error loading selection state: {e}")
+            self.selected = False
+            
+    def save_selection_state(self):
+        try:
+            selections = {}
+            if os.path.exists('selected_cards.json'):
+                with open('selected_cards.json', 'r') as f:
+                    selections = json.load(f)
+            
+            selections[str(self.order_data['ID'])] = self.selected
+            
+            with open('selected_cards.json', 'w') as f:
+                json.dump(selections, f)
+        except Exception as e:
+            print(f"Error saving selection state: {e}")
     
     def change_status(self, new_status):
         # حفظ الحالة القديمة للرجوع إليها في حالة الفشل
