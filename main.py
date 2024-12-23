@@ -329,7 +329,7 @@ class MainWindow(QMainWindow):
         self.db = Database()
         self.available_statuses = self.db.get_order_statuses()
         self.orders_cache = []  # تغيير من dict إلى list
-        self.current_filter = 'all'  # تعيين القيمة الافتراضية
+        self.current_filter = 'Pending'  # تعيين الفلتر الافتراضي إلى قيد المراجعة
         self.search_text = ''
         self.setup_ui()
         self.load_orders()
@@ -363,11 +363,12 @@ class MainWindow(QMainWindow):
         
         for status in self.available_statuses:
             btn = SidebarButton(STATUS_TRANSLATIONS.get(status, status))
+            btn.setCheckable(True)
+            # تفعيل زر "قيد المراجعة" عند بدء التشغيل
+            if status == 'Pending':
+                btn.setChecked(True)
             btn.clicked.connect(lambda checked, s=status: self.filter_by_status(s))
             sidebar_layout.addWidget(btn)
-            # تحديد زر "قيد المراجعة" كافتراضي
-            if status == "Pending":
-                btn.setChecked(True)
         
         sidebar_layout.addStretch()
         main_layout.addWidget(sidebar)
