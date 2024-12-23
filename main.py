@@ -13,15 +13,15 @@ class SidebarButton(QPushButton):
         super().__init__(text, parent)
         self.setCheckable(True)
         self.setAutoExclusive(True)
-        self.setMinimumHeight(40)
+        self.setMinimumHeight(32)  
         self.setStyleSheet("""
             QPushButton {
                 text-align: right;
-                padding: 8px 15px;
+                padding: 4px 12px;
                 border: none;
                 border-radius: 0;
                 color: #333;
-                font-size: 11pt;
+                font-size: 10pt;
             }
             QPushButton:checked {
                 background-color: #f0f0f0;
@@ -44,13 +44,13 @@ class OrderCard(QFrame):
         self.setStyleSheet(f"""
             QFrame {{
                 background-color: white;
-                border-radius: 6px;
-                margin: 4px 8px;
-                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+                border-radius: 4px;
+                margin: 2px 6px;
+                box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
             }}
             QFrame:hover {{
                 background-color: #fafafa;
-                box-shadow: 0 2px 5px rgba(0, 0, 0, 0.08);
+                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
             }}
         """)
         
@@ -60,62 +60,62 @@ class OrderCard(QFrame):
         
         # شريط الحالة الجانبي
         status_bar = QFrame()
-        status_bar.setFixedWidth(4)
+        status_bar.setFixedWidth(3)
         status_bar.setStyleSheet(f"""
             background-color: {STATUS_COLORS.get(status, '#ddd')};
-            border-top-right-radius: 6px;
-            border-bottom-right-radius: 6px;
+            border-top-right-radius: 4px;
+            border-bottom-right-radius: 4px;
         """)
         layout.addWidget(status_bar)
         
         # محتوى البطاقة
         content = QWidget()
         content_layout = QVBoxLayout()
-        content_layout.setContentsMargins(15, 12, 15, 12)
-        content_layout.setSpacing(8)
+        content_layout.setContentsMargins(10, 8, 10, 8)
+        content_layout.setSpacing(4)
         
         # اسم العميل والحالة
         header_layout = QHBoxLayout()
         name_label = QLabel(self.order_data['customer_name'])
-        name_label.setStyleSheet("font-size: 12pt; font-weight: bold; color: #333;")
+        name_label.setStyleSheet("font-size: 10pt; font-weight: bold; color: #333;")
         header_layout.addWidget(name_label)
         
         status_text = STATUS_TRANSLATIONS.get(status, status)
         status_label = QLabel(status_text)
         status_label.setStyleSheet(f"""
             color: {STATUS_COLORS.get(status, '#666')};
-            font-size: 10pt;
-            padding: 2px 8px;
+            font-size: 9pt;
+            padding: 1px 6px;
             background: #f5f5f5;
-            border-radius: 4px;
+            border-radius: 3px;
         """)
         header_layout.addStretch()
         header_layout.addWidget(status_label)
         content_layout.addLayout(header_layout)
         
-        # معلومات الاتصال
+        # معلومات الاتصال والتاريخ في سطر واحد
+        info_layout = QHBoxLayout()
         contact_info = QLabel(f"{self.order_data['customer_phone']}")
         if self.order_data.get('customer_email'):
             contact_info.setText(f"{self.order_data['customer_phone']} | {self.order_data['customer_email']}")
-        contact_info.setStyleSheet("color: #666; font-size: 10pt;")
-        content_layout.addWidget(contact_info)
+        contact_info.setStyleSheet("color: #666; font-size: 9pt;")
+        info_layout.addWidget(contact_info)
         
-        # المجموعات والتاريخ
-        footer_layout = QHBoxLayout()
+        info_layout.addStretch()
         
+        date_label = QLabel(self.order_data['Date'].strftime('%Y-%m-%d'))
+        date_label.setStyleSheet("color: #666; font-size: 8pt;")
+        info_layout.addWidget(date_label)
+        
+        content_layout.addLayout(info_layout)
+        
+        # المجموعات (إذا وجدت)
         if self.order_data.get('custom_groups'):
             groups = self.order_data['custom_groups'].split(',')
             groups_label = QLabel(" • ".join(groups))
-            groups_label.setStyleSheet("color: #666; font-size: 9pt;")
-            footer_layout.addWidget(groups_label)
+            groups_label.setStyleSheet("color: #666; font-size: 8pt;")
+            content_layout.addWidget(groups_label)
         
-        footer_layout.addStretch()
-        
-        date_label = QLabel(self.order_data['Date'].strftime('%Y-%m-%d'))
-        date_label.setStyleSheet("color: #666; font-size: 9pt;")
-        footer_layout.addWidget(date_label)
-        
-        content_layout.addLayout(footer_layout)
         content.setLayout(content_layout)
         layout.addWidget(content)
         
@@ -170,7 +170,7 @@ class MainWindow(QMainWindow):
         
     def setup_ui(self):
         self.setWindowTitle("نظام إدارة طلبات التصميم")
-        self.setMinimumSize(1000, 700)
+        self.setMinimumSize(800, 600)  
         
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -180,11 +180,11 @@ class MainWindow(QMainWindow):
         
         # القائمة الجانبية
         sidebar = QWidget()
-        sidebar.setFixedWidth(200)
+        sidebar.setFixedWidth(160)  
         sidebar.setStyleSheet("background-color: white; border-left: 1px solid #e0e0e0;")
         sidebar_layout = QVBoxLayout(sidebar)
-        sidebar_layout.setContentsMargins(0, 10, 0, 10)
-        sidebar_layout.setSpacing(2)
+        sidebar_layout.setContentsMargins(0, 6, 0, 6)
+        sidebar_layout.setSpacing(1)
         
         all_orders_btn = SidebarButton("جميع الطلبات")
         all_orders_btn.setChecked(True)
@@ -209,16 +209,16 @@ class MainWindow(QMainWindow):
         search_widget = QWidget()
         search_widget.setStyleSheet("background-color: white; border-bottom: 1px solid #e0e0e0;")
         search_layout = QHBoxLayout(search_widget)
-        search_layout.setContentsMargins(15, 10, 15, 10)
+        search_layout.setContentsMargins(10, 6, 10, 6)
         
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("بحث...")
         self.search_input.setStyleSheet("""
             QLineEdit {
-                padding: 8px 12px;
+                padding: 4px 8px;
                 border: 1px solid #e0e0e0;
-                border-radius: 4px;
-                font-size: 11pt;
+                border-radius: 3px;
+                font-size: 10pt;
             }
             QLineEdit:focus {
                 border-color: #0078D4;
