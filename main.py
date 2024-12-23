@@ -1,7 +1,8 @@
 import sys
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QHBoxLayout, QScrollArea, QMenu, QLabel,
-                            QFrame, QPushButton, QLineEdit, QGridLayout, QSizePolicy)
+                            QFrame, QPushButton, QLineEdit, QGridLayout, QSizePolicy,
+                            QButtonGroup)
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt6.QtGui import QAction, QFont
 from database import Database
@@ -9,6 +10,7 @@ from config import STATUS_COLORS, STATUS_TRANSLATIONS, STATUS_LIGHT_COLORS
 from order_details import OrderDetailsDialog
 import json
 import os
+from functools import partial
 
 class OrdersUpdateThread(QThread):
     orders_updated = pyqtSignal(list)
@@ -42,37 +44,29 @@ class StatusUpdateThread(QThread):
             print(f"Error updating status: {e}")
             self.status_updated.emit(False, self.order_id, self.new_status)
 
-class SidebarButton(QPushButton):
-    def __init__(self, text, parent=None):
-        super().__init__(text, parent)
-        self.setCheckable(True)
-        self.setAutoExclusive(True)
-        self.setMinimumHeight(32)  
-        self.setStyleSheet("""
-            QPushButton {
-                text-align: right;
-                padding: 4px 12px;
-                border: none;
-                border-radius: 0;
-                color: #333;
-                font-size: 10pt;
-            }
-            QPushButton:checked {
-                background-color: #f0f0f0;
-                font-weight: bold;
-            }
-            QPushButton:hover:!checked {
-                background-color: #f8f8f8;
-            }
-        """)
-
 class SelectionCircle(QLabel):
     clicked = pyqtSignal()
     
-    def __init__(self, selected=False, parent=None):
+    # تدرجات اللون الأخضر من الفاتح إلى الغامق
+    SELECTION_COLORS = [
+        '#FFFFFF',  # أبيض
+        '#E8F5E9',
+        '#C8E6C9',
+        '#A5D6A7',
+        '#81C784',
+        '#66BB6A',
+        '#4CAF50',
+        '#43A047',
+        '#388E3C',
+        '#2E7D32',
+        '#1B5E20'   # أخضر غامق
+    ]
+    
+    def __init__(self, level=0, parent=None):
         super().__init__(parent)
         self.setObjectName("selectionCircle")
-        self.setProperty("selected", "true" if selected else "false")
+        self.level = level
+        self.update_color()
         self.setStyleSheet("""
             QLabel#selectionCircle {
                 min-width: 20px;
@@ -81,14 +75,22 @@ class SelectionCircle(QLabel):
                 max-height: 20px;
                 border-radius: 10px;
                 border: 2px solid #ddd;
-                background-color: white;
-            }
-            QLabel#selectionCircle[selected="true"] {
-                background-color: #28a745;
-                border-color: #28a745;
             }
         """)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def update_color(self):
+        self.setStyleSheet(f"""
+            QLabel#selectionCircle {{
+                min-width: 20px;
+                min-height: 20px;
+                max-width: 20px;
+                max-height: 20px;
+                border-radius: 10px;
+                border: 2px solid {self.SELECTION_COLORS[self.level]};
+                background-color: {self.SELECTION_COLORS[self.level]};
+            }}
+        """)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -101,9 +103,11 @@ class OrderCard(QFrame):
         super().__init__(parent)
         self.order_data = order_data
         self.available_statuses = available_statuses
+        self.selection_level = 0
         self.db = Database()
-        self.selected = False
-        self.load_selection_state()
+        self.context_menu = None
+        self.status_actions = []
+        self.load_selection_state()  # نقوم بتحميل الحالة أولاً
         
         # تطبيق ستايل الكرت
         self.setStyleSheet("""
@@ -134,8 +138,10 @@ class OrderCard(QFrame):
         """)
         main_layout.addWidget(status_bar)
         
-        # دائرة التحديد
-        self.selection_circle = SelectionCircle(self.selected)
+        # دائرة التحديد - نقوم بإنشائها بعد تحميل الحالة
+        self.selection_circle = SelectionCircle(self.selection_level)
+        self.selection_circle.level = self.selection_level  # نتأكد من تعيين المستوى
+        self.selection_circle.update_color()  # نتأكد من تحديث اللون
         self.selection_circle.clicked.connect(self.toggle_selection)
         
         # إضافة padding للدائرة
@@ -163,12 +169,16 @@ class OrderCard(QFrame):
         
     def mouseDoubleClickEvent(self, event):
         # فتح نافذة تفاصيل الطلب
-        details_dialog = OrderDetailsDialog(self.order_data['ID'], self.db)
+        details_dialog = OrderDetailsDialog(self.order_data['ID'], Database())
         details_dialog.exec()
         
     def contextMenuEvent(self, event):
-        context_menu = QMenu(self)
-        context_menu.setStyleSheet("""
+        # إنشاء قائمة جديدة في كل مرة
+        if self.context_menu:
+            self.context_menu.deleteLater()
+        
+        self.context_menu = QMenu(self)
+        self.context_menu.setStyleSheet("""
             QMenu {
                 background-color: white;
                 border: 1px solid #ddd;
@@ -181,19 +191,27 @@ class OrderCard(QFrame):
             }
         """)
         
+        # حذف الـ actions القديمة
+        for action in self.status_actions:
+            action.deleteLater()
+        self.status_actions.clear()
+        
+        # إنشاء actions جديدة
         for status in self.available_statuses:
             if status != self.order_data['Accept_Reject']:
                 action = QAction(STATUS_TRANSLATIONS.get(status, status), self)
-                action.triggered.connect(lambda checked, s=status: self.change_status(s))
-                context_menu.addAction(action)
-            
-        context_menu.exec(event.globalPos())
+                # استخدام functools.partial لتجنب مشكلة الـ lambda
+                action.triggered.connect(partial(self.change_status, status))
+                self.context_menu.addAction(action)
+                self.status_actions.append(action)
+        
+        self.context_menu.exec(event.globalPos())
     
     def toggle_selection(self):
-        self.selected = not self.selected
-        self.selection_circle.setProperty("selected", "true" if self.selected else "false")
-        self.selection_circle.style().unpolish(self.selection_circle)
-        self.selection_circle.style().polish(self.selection_circle)
+        # زيادة المستوى وإعادته إلى 0 إذا وصل للحد الأقصى
+        self.selection_level = (self.selection_level + 1) % len(SelectionCircle.SELECTION_COLORS)
+        self.selection_circle.level = self.selection_level
+        self.selection_circle.update_color()
         self.save_selection_state()
         
     def load_selection_state(self):
@@ -201,10 +219,18 @@ class OrderCard(QFrame):
             if os.path.exists('selected_cards.json'):
                 with open('selected_cards.json', 'r') as f:
                     selections = json.load(f)
-                    self.selected = selections.get(str(self.order_data['ID']), False)
+                    # تحويل القيم القديمة (true/false) إلى المستوى الجديد
+                    if str(self.order_data['ID']) in selections:
+                        value = selections[str(self.order_data['ID'])]
+                        if isinstance(value, bool):
+                            self.selection_level = 1 if value else 0
+                        else:
+                            self.selection_level = int(value) if str(value).isdigit() else 0
+                    else:
+                        self.selection_level = 0
         except Exception as e:
             print(f"Error loading selection state: {e}")
-            self.selected = False
+            self.selection_level = 0
             
     def save_selection_state(self):
         try:
@@ -213,7 +239,7 @@ class OrderCard(QFrame):
                 with open('selected_cards.json', 'r') as f:
                     selections = json.load(f)
             
-            selections[str(self.order_data['ID'])] = self.selected
+            selections[str(self.order_data['ID'])] = self.selection_level
             
             with open('selected_cards.json', 'w') as f:
                 json.dump(selections, f)
@@ -323,7 +349,7 @@ class OrderCard(QFrame):
         self.status_changed.emit(self.order_data['ID'], new_status)
         
         # تحديث قاعدة البيانات في الخلفية
-        self.update_thread = StatusUpdateThread(self.db, self.order_data['ID'], new_status)
+        self.update_thread = StatusUpdateThread(Database(), self.order_data['ID'], new_status)
         self.update_thread.status_updated.connect(lambda success, order_id, status: 
             self.handle_status_update(success, order_id, status, old_status))
         self.update_thread.start()
@@ -336,6 +362,29 @@ class OrderCard(QFrame):
             self.setup_content(self.layout().itemAt(2).widget().layout())
             self.status_changed.emit(order_id, old_status)
             
+class SidebarButton(QPushButton):
+    def __init__(self, text, parent=None):
+        super().__init__(text, parent)
+        self.setCheckable(True)
+        self.setAutoExclusive(True)  # يضمن أن زر واحد فقط يمكن تحديده
+        self.setMinimumHeight(32)
+        self.setStyleSheet("""
+            QPushButton {
+                text-align: right;
+                padding: 8px 15px;
+                border: none;
+                border-radius: 0;
+                background-color: transparent;
+            }
+            QPushButton:hover {
+                background-color: #e9ecef;
+            }
+            QPushButton:checked {
+                background-color: #0078D4;
+                color: white;
+            }
+        """)
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -370,45 +419,25 @@ class MainWindow(QMainWindow):
                 background-color: #f8f9fa;
                 border-left: 1px solid #dee2e6;
             }
-            QPushButton {
-                text-align: right;
-                padding: 8px 15px;
-                border: none;
-                border-radius: 0;
-                background-color: transparent;
-            }
-            QPushButton:hover {
-                background-color: #e9ecef;
-            }
-            QPushButton:checked {
-                background-color: #0078D4;
-                color: white;
-            }
-            QPushButton#closeButton {
-                background-color: #dc3545;
-                color: white;
-                margin: 10px;
-                border-radius: 4px;
-                text-align: center;
-            }
-            QPushButton#closeButton:hover {
-                background-color: #c82333;
-            }
         """)
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
         sidebar_layout.setSpacing(0)
         
-        # إضافة أزرار التصفية
+        # إنشاء مجموعة للأزرار
+        self.button_group = QButtonGroup(self)
+        self.button_group.setExclusive(True)  # يضمن أن زر واحد فقط يمكن تحديده
+        
+        # زر جميع الطلبات
         all_button = SidebarButton("جميع الطلبات")
-        all_button.setCheckable(True)
+        self.button_group.addButton(all_button)
         all_button.clicked.connect(self.show_all_orders)
         sidebar_layout.addWidget(all_button)
         
-        # إضافة أزرار لكل حالة
+        # أزرار الحالات
         for status in self.available_statuses:
             btn = SidebarButton(STATUS_TRANSLATIONS.get(status, status))
-            btn.setCheckable(True)
+            self.button_group.addButton(btn)
             if status == 'Pending':
                 btn.setChecked(True)
             btn.clicked.connect(lambda checked, s=status: self.filter_by_status(s))
@@ -420,6 +449,18 @@ class MainWindow(QMainWindow):
         close_button = QPushButton("إغلاق البرنامج")
         close_button.setObjectName("closeButton")
         close_button.clicked.connect(self.close_application)
+        close_button.setStyleSheet("""
+            QPushButton#closeButton {
+                background-color: #dc3545;
+                color: white;
+                margin: 10px;
+                border-radius: 4px;
+                text-align: center;
+            }
+            QPushButton#closeButton:hover {
+                background-color: #c82333;
+            }
+        """)
         sidebar_layout.addWidget(close_button)
         
         main_layout.addWidget(sidebar)
@@ -474,19 +515,32 @@ class MainWindow(QMainWindow):
     
     def update_orders(self, orders):
         try:
-            self.orders_cache = orders  
+            self.orders_cache = orders  # تحديث الكاش
+            
+            # حفظ حالة التحديد للكروت الحالية
+            current_selections = {}
+            for i in range(self.orders_layout.count()):
+                widget = self.orders_layout.itemAt(i).widget()
+                if isinstance(widget, OrderCard):
+                    current_selections[str(widget.order_data['ID'])] = widget.selection_level
+
             # حذف جميع الكروت الموجودة
             while self.orders_layout.count():
                 item = self.orders_layout.takeAt(0)
                 if item.widget():
                     item.widget().deleteLater()
 
-            # إضافة الكروت الجديدة
+            # إضافة الكروت الجديدة مع الحفاظ على حالة التحديد
             for order in orders:
                 if self.current_filter == 'all' or order['Accept_Reject'] == self.current_filter:
                     if self.search_text.lower() in order.get('customer_name', '').lower() or \
                        self.search_text.lower() in str(order.get('customer_phone', '')).lower():
                         card = OrderCard(order, self.available_statuses)
+                        # استعادة حالة التحديد إذا كانت موجودة
+                        if str(order['ID']) in current_selections:
+                            card.selection_level = current_selections[str(order['ID'])]
+                            card.selection_circle.level = card.selection_level
+                            card.selection_circle.update_color()
                         card.status_changed.connect(self.on_status_changed)
                         self.orders_layout.addWidget(card)
 
