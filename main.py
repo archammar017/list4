@@ -1,7 +1,7 @@
 import sys
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QHBoxLayout, QScrollArea, QMenu, QLabel,
-                            QFrame, QPushButton, QLineEdit, QGridLayout)
+                            QFrame, QPushButton, QLineEdit, QGridLayout, QSizePolicy)
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt6.QtGui import QAction, QFont
 from database import Database
@@ -74,7 +74,6 @@ class OrderCard(QFrame):
         self.order_data = order_data
         self.available_statuses = available_statuses
         self.db = Database()
-        self.main_layout = None
         self.selected = False
         self.load_selection_state()
         
@@ -103,12 +102,22 @@ class OrderCard(QFrame):
             }
         """)
         
-        self.setup_ui()
-        
-    def setup_ui(self):
-        # الحاوية الرئيسية
-        main_layout = QHBoxLayout(self)
+        # إنشاء التخطيط الرئيسي مباشرة
+        main_layout = QHBoxLayout()
         main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        self.setLayout(main_layout)
+
+        # شريط الحالة الجانبي
+        status = self.order_data.get('Accept_Reject', '')
+        status_bar = QFrame()
+        status_bar.setFixedWidth(3)
+        status_bar.setStyleSheet(f"""
+            background-color: {STATUS_COLORS.get(status, '#ddd')};
+            border-top-right-radius: 4px;
+            border-bottom-right-radius: 4px;
+        """)
+        main_layout.addWidget(status_bar)
         
         # دائرة التحديد
         self.selection_circle = QLabel()
@@ -129,13 +138,19 @@ class OrderCard(QFrame):
         content_layout.setContentsMargins(10, 8, 10, 8)
         content_layout.setSpacing(4)
         
+        # إضافة التخطيطات الأخرى هنا
+        self.setup_content(content_layout)
+        
+        main_layout.addWidget(content_widget)
+        
+    def setup_content(self, content_layout):
         # استخدام Grid Layout للتنسيق كجدول
         header_layout = QGridLayout()
         header_layout.setSpacing(0)
         header_layout.setContentsMargins(0, 0, 0, 0)
         
         # اسم العميل - عامود 0
-        name_label = QLabel(self.order_data['customer_name'])
+        name_label = QLabel(self.order_data.get('customer_name', ''))
         name_label.setStyleSheet("""
             font-size: 10pt;
             font-weight: bold;
@@ -147,7 +162,7 @@ class OrderCard(QFrame):
         header_layout.addWidget(name_label, 0, 0)
         
         # رقم الجوال - عامود 1
-        phone = str(self.order_data['customer_phone'])
+        phone = str(self.order_data.get('customer_phone', ''))
         if phone.startswith('0'):
             phone = '966' + phone[1:]
         elif not phone.startswith('966'):
@@ -166,14 +181,8 @@ class OrderCard(QFrame):
         phone_label.setTextFormat(Qt.TextFormat.RichText)
         header_layout.addWidget(phone_label, 0, 1)
         
-        # إضافة حاوية للحالة لضمان التنسيق الصحيح
-        status_container = QWidget()
-        status_layout = QHBoxLayout(status_container)
-        status_layout.setContentsMargins(0, 0, 0, 0)
-        status_layout.addStretch()
-        
         # الحالة - عامود 2
-        status = self.order_data['Accept_Reject']
+        status = self.order_data.get('Accept_Reject', '')
         status_text = STATUS_TRANSLATIONS.get(status, status)
         status_label = QLabel(status_text)
         status_label.setStyleSheet(f"""
@@ -182,8 +191,7 @@ class OrderCard(QFrame):
             padding: 1px 6px;
             border-radius: 3px;
         """)
-        status_layout.addWidget(status_label)
-        header_layout.addWidget(status_container, 0, 2)
+        header_layout.addWidget(status_label, 0, 2)
         
         # إضافة stretch للمسافة المتبقية
         header_layout.setColumnStretch(2, 1)
@@ -227,10 +235,6 @@ class OrderCard(QFrame):
             
             groups_layout.addStretch()
             content_layout.addLayout(groups_layout)
-        
-        main_layout.addWidget(content_widget)
-        
-        self.setLayout(main_layout)
         
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -302,7 +306,7 @@ class OrderCard(QFrame):
         
         # تحديث واجهة المستخدم فوراً
         self.order_data['Accept_Reject'] = new_status
-        self.setup_ui()  # إعادة إنشاء واجهة البطاقة بالكامل
+        self.setup_content(self.layout().itemAt(2).widget().layout())
         self.status_changed.emit(self.order_data['ID'], new_status)
         
         # تحديث قاعدة البيانات في الخلفية
@@ -316,7 +320,7 @@ class OrderCard(QFrame):
             # إذا فشل التحديث، نرجع للحالة القديمة
             print(f"فشل تحديث الحالة في قاعدة البيانات. الرجوع للحالة السابقة.")
             self.order_data['Accept_Reject'] = old_status
-            self.setup_ui()  # إعادة إنشاء واجهة البطاقة بالكامل
+            self.setup_content(self.layout().itemAt(2).widget().layout())
             self.status_changed.emit(order_id, old_status)
             
 class MainWindow(QMainWindow):
@@ -324,23 +328,17 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.db = Database()
         self.available_statuses = self.db.get_order_statuses()
-        self.orders_cache = {}  # تخزين مؤقت للطلبات
+        self.orders_cache = []  # تغيير من dict إلى list
+        self.current_filter = 'all'  # تعيين القيمة الافتراضية
+        self.search_text = ''
         self.setup_ui()
         self.load_orders()
         
-        # تحديث كامل كل دقيقة
-        self.full_update_timer = QTimer()
-        self.full_update_timer.timeout.connect(self.load_orders)
-        self.full_update_timer.start(60000)
-        
-        # تحديث سريع كل 10 ثواني للطلبات المتغيرة فقط
-        self.quick_update_timer = QTimer()
-        self.quick_update_timer.timeout.connect(self.quick_update)
-        self.quick_update_timer.start(10000)
-        
-        # تطبيق الفلتر الافتراضي (قيد المراجعة)
-        self.filter_by_status("Pending")
-    
+        # إعداد المؤقت للتحديث التلقائي
+        self.update_timer = QTimer(self)
+        self.update_timer.timeout.connect(self.load_orders)
+        self.update_timer.start(60000)  # تحديث كل دقيقة
+
     def setup_ui(self):
         self.setWindowTitle("نظام إدارة طلبات التصميم")
         self.setMinimumSize(800, 600)  
@@ -398,7 +396,7 @@ class MainWindow(QMainWindow):
                 border-color: #0078D4;
             }
         """)
-        self.search_input.textChanged.connect(self.filter_orders)
+        self.search_input.textChanged.connect(self.search_orders)
         search_layout.addWidget(self.search_input)
         orders_layout.addWidget(search_widget)
         
@@ -419,92 +417,58 @@ class MainWindow(QMainWindow):
         
     def load_orders(self):
         self.update_thread = OrdersUpdateThread(self.db)
-        self.update_thread.orders_updated.connect(self.on_orders_updated)
+        self.update_thread.orders_updated.connect(self.update_orders)
         self.update_thread.start()
     
-    def on_orders_updated(self, orders):
-        # حذف البطاقات القديمة
-        for i in reversed(range(self.orders_layout.count()-1)): 
-            widget = self.orders_layout.itemAt(i).widget()
-            if widget:
-                widget.setParent(None)
-        
-        # إنشاء بطاقات جديدة
-        for order in orders:
-            card = OrderCard(order, self.available_statuses)
-            card.status_changed.connect(self.on_order_status_changed)
-            self.orders_layout.insertWidget(self.orders_layout.count()-1, card)
-            self.orders_cache[order['ID']] = order
-        
-        # تطبيق فلتر قيد المراجعة على جميع البطاقات
-        for i in range(self.orders_layout.count()-1):
-            card = self.orders_layout.itemAt(i).widget()
-            if isinstance(card, OrderCard):
-                card.setVisible(card.order_data['Accept_Reject'] == "Pending")
-    
-    def on_order_status_changed(self, order_id, new_status):
-        # تحديث الذاكرة المؤقتة
-        if order_id in self.orders_cache:
-            self.orders_cache[order_id]['Accept_Reject'] = new_status
-        
-        # إعادة تطبيق الفلتر الحالي
-        current_filter = None
-        for button in self.findChildren(SidebarButton):
-            if button.isChecked():
-                current_filter = button.text()
-                break
-        
-        if current_filter:
-            status = next((k for k, v in STATUS_TRANSLATIONS.items() if v == current_filter), None)
-            if status:
-                self.filter_by_status(status)
-    
-    def background_update(self):
-        # تحديث كامل كل دقيقة
-        self.load_orders()
-    
-    def quick_update(self):
-        # تحديث سريع للطلبات المتغيرة فقط
+    def update_orders(self, orders):
         try:
-            changed_orders = self.db.get_recently_changed_orders()  # تحتاج لإضافة هذه الدالة في database.py
-            if changed_orders:
-                for order in changed_orders:
-                    if order['ID'] in self.orders_cache:
-                        self.orders_cache[order['ID']] = order
-                        # تحديث البطاقة المعنية فقط
-                        for i in range(self.orders_layout.count()-1):
-                            widget = self.orders_layout.itemAt(i).widget()
-                            if isinstance(widget, OrderCard) and widget.order_data['ID'] == order['ID']:
-                                widget.order_data = order
-                                widget.setup_ui()
-                                break
-        except Exception as e:
-            print(f"Error in quick update: {e}")
+            self.orders_cache = orders  # تحديث الكاش
+            # حذف جميع الكروت الموجودة
+            while self.orders_layout.count():
+                item = self.orders_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
 
-    def filter_orders(self):
-        search_text = self.search_input.text().lower()
-        
-        for i in range(self.orders_layout.count()-1):
-            card = self.orders_layout.itemAt(i).widget()
-            order = card.order_data
-            
-            text_match = (
-                search_text in order['customer_name'].lower() or
-                search_text in order['customer_phone'].lower() or
-                (order.get('customer_email') and search_text in order['customer_email'].lower())
-            )
-            
-            card.setVisible(text_match)
-            
+            # إضافة الكروت الجديدة
+            for order in orders:
+                if self.current_filter == 'all' or order['Accept_Reject'] == self.current_filter:
+                    if self.search_text.lower() in order.get('customer_name', '').lower() or \
+                       self.search_text.lower() in str(order.get('customer_phone', '')).lower():
+                        card = OrderCard(order, self.available_statuses)
+                        card.status_changed.connect(self.on_status_changed)
+                        self.orders_layout.addWidget(card)
+
+            # إضافة widget فارغ في النهاية لدفع الكروت للأعلى
+            spacer = QWidget()
+            spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            self.orders_layout.addWidget(spacer)
+        except Exception as e:
+            print(f"Error updating orders: {e}")
+
+    def on_status_changed(self, order_id, new_status):
+        # تحديث الواجهة بعد تغيير الحالة
+        try:
+            # تحديث الكاش
+            for order in self.orders_cache:
+                if order['ID'] == order_id:
+                    order['Accept_Reject'] = new_status
+                    break
+            # تحديث الواجهة
+            self.update_orders(self.orders_cache)
+        except Exception as e:
+            print(f"Error in status change: {e}")
+
     def filter_by_status(self, status):
-        for i in range(self.orders_layout.count()-1):
-            card = self.orders_layout.itemAt(i).widget()
-            card.setVisible(card.order_data['Accept_Reject'] == status)
+        self.current_filter = status
+        self.update_orders(self.orders_cache)
             
     def show_all_orders(self):
-        for i in range(self.orders_layout.count()-1):
-            card = self.orders_layout.itemAt(i).widget()
-            card.setVisible(True)
+        self.current_filter = 'all'
+        self.update_orders(self.orders_cache)
+
+    def search_orders(self):
+        self.search_text = self.search_input.text().lower()
+        self.update_orders(self.orders_cache)
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
