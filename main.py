@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QHBoxLayout, QScrollArea, QMenu, QLabel,
                             QFrame, QPushButton, QLineEdit, QGridLayout, QSizePolicy,
                             QButtonGroup)
-from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QDateTime
 from PyQt6.QtGui import QAction, QFont
 from database import Database
 from config import STATUS_COLORS, STATUS_TRANSLATIONS, STATUS_LIGHT_COLORS
@@ -107,7 +107,8 @@ class OrderCard(QFrame):
         self.db = Database()
         self.context_menu = None
         self.status_actions = []
-        self.load_selection_state()  # نقوم بتحميل الحالة أولاً
+        self.load_selection_state()
+        self.load_selection_date()  # تحميل التاريخ
         
         # تطبيق ستايل الكرت
         self.setStyleSheet("""
@@ -119,9 +120,14 @@ class OrderCard(QFrame):
             QFrame:hover {
                 background-color: #f8f9fa;
             }
+            QLabel#dateLabel {
+                color: #666;
+                font-size: 11px;
+                padding: 2px 5px;
+            }
         """)
         
-        # إنشاء التخطيط الرئيسي مباشرة
+        # إنشاء التخطيط الرئيسي
         main_layout = QHBoxLayout()
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
@@ -138,19 +144,27 @@ class OrderCard(QFrame):
         """)
         main_layout.addWidget(status_bar)
         
-        # دائرة التحديد - نقوم بإنشائها بعد تحميل الحالة
+        # حاوية للدائرة والتاريخ
+        left_container = QWidget()
+        left_layout = QVBoxLayout(left_container)
+        left_layout.setContentsMargins(10, 5, 0, 5)
+        left_layout.setSpacing(2)
+        
+        # دائرة التحديد
         self.selection_circle = SelectionCircle(self.selection_level)
-        self.selection_circle.level = self.selection_level  # نتأكد من تعيين المستوى
-        self.selection_circle.update_color()  # نتأكد من تحديث اللون
+        self.selection_circle.level = self.selection_level
+        self.selection_circle.update_color()
         self.selection_circle.clicked.connect(self.toggle_selection)
+        left_layout.addWidget(self.selection_circle)
         
-        # إضافة padding للدائرة
-        circle_container = QWidget()
-        circle_layout = QHBoxLayout(circle_container)
-        circle_layout.setContentsMargins(10, 0, 0, 0)
-        circle_layout.addWidget(self.selection_circle)
+        # تاريخ آخر تحديث
+        self.date_label = QLabel()
+        self.date_label.setObjectName("dateLabel")
+        self.date_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.update_date_label()  # تحديث نص التاريخ
+        left_layout.addWidget(self.date_label)
         
-        main_layout.addWidget(circle_container)
+        main_layout.addWidget(left_container)
         
         # محتوى الكرت
         content_widget = QWidget()
@@ -209,10 +223,23 @@ class OrderCard(QFrame):
     
     def toggle_selection(self):
         # زيادة المستوى وإعادته إلى 0 إذا وصل للحد الأقصى
-        self.selection_level = (self.selection_level + 1) % len(SelectionCircle.SELECTION_COLORS)
+        self.selection_level = (self.selection_level + 1) % 11
+        
+        # تحديث التاريخ إذا كان المستوى > 0
+        if self.selection_level > 0:
+            now = QDateTime.currentDateTime()
+            self.selection_date = now.toString("yyyy/MM/dd hh:mm")
+        else:
+            self.selection_date = None
+        
+        # تحديث الواجهة
         self.selection_circle.level = self.selection_level
         self.selection_circle.update_color()
+        self.update_date_label()
+        
+        # حفظ الحالة
         self.save_selection_state()
+        self.save_selection_date()
         
     def load_selection_state(self):
         try:
@@ -246,6 +273,47 @@ class OrderCard(QFrame):
         except Exception as e:
             print(f"Error saving selection state: {e}")
     
+    def load_selection_date(self):
+        """تحميل تاريخ التحديد من الملف"""
+        try:
+            if os.path.exists('selection_dates.json'):
+                with open('selection_dates.json', 'r') as f:
+                    dates = json.load(f)
+                    self.selection_date = dates.get(str(self.order_data['ID']), None)
+            else:
+                self.selection_date = None
+        except Exception as e:
+            print(f"Error loading selection date: {e}")
+            self.selection_date = None
+    
+    def save_selection_date(self):
+        """حفظ تاريخ التحديد في الملف"""
+        try:
+            dates = {}
+            if os.path.exists('selection_dates.json'):
+                with open('selection_dates.json', 'r') as f:
+                    dates = json.load(f)
+            
+            # تحديث أو حذف التاريخ
+            if self.selection_level > 0:
+                dates[str(self.order_data['ID'])] = self.selection_date
+            else:
+                dates.pop(str(self.order_data['ID']), None)
+            
+            with open('selection_dates.json', 'w', encoding='utf-8') as f:
+                json.dump(dates, f, ensure_ascii=False)
+        except Exception as e:
+            print(f"Error saving selection date: {e}")
+    
+    def update_date_label(self):
+        """تحديث نص التاريخ في الواجهة"""
+        if hasattr(self, 'date_label'):
+            if self.selection_level > 0 and self.selection_date:
+                self.date_label.setText(self.selection_date)
+                self.date_label.show()
+            else:
+                self.date_label.hide()
+
     def setup_content(self, content_layout):
         # استخدام Grid Layout للتنسيق كجدول
         header_layout = QGridLayout()
@@ -517,12 +585,16 @@ class MainWindow(QMainWindow):
         try:
             self.orders_cache = orders  # تحديث الكاش
             
-            # حفظ حالة التحديد للكروت الحالية
+            # حفظ حالة التحديد والتواريخ للكروت الحالية
             current_selections = {}
+            current_dates = {}
             for i in range(self.orders_layout.count()):
                 widget = self.orders_layout.itemAt(i).widget()
                 if isinstance(widget, OrderCard):
-                    current_selections[str(widget.order_data['ID'])] = widget.selection_level
+                    order_id = str(widget.order_data['ID'])
+                    current_selections[order_id] = widget.selection_level
+                    if hasattr(widget, 'selection_date'):
+                        current_dates[order_id] = widget.selection_date
 
             # حذف جميع الكروت الموجودة
             while self.orders_layout.count():
@@ -530,17 +602,21 @@ class MainWindow(QMainWindow):
                 if item.widget():
                     item.widget().deleteLater()
 
-            # إضافة الكروت الجديدة مع الحفاظ على حالة التحديد
+            # إضافة الكروت الجديدة مع الحفاظ على حالة التحديد والتواريخ
             for order in orders:
                 if self.current_filter == 'all' or order['Accept_Reject'] == self.current_filter:
                     if self.search_text.lower() in order.get('customer_name', '').lower() or \
                        self.search_text.lower() in str(order.get('customer_phone', '')).lower():
                         card = OrderCard(order, self.available_statuses)
-                        # استعادة حالة التحديد إذا كانت موجودة
-                        if str(order['ID']) in current_selections:
-                            card.selection_level = current_selections[str(order['ID'])]
+                        # استعادة حالة التحديد والتاريخ
+                        order_id = str(order['ID'])
+                        if order_id in current_selections:
+                            card.selection_level = current_selections[order_id]
                             card.selection_circle.level = card.selection_level
                             card.selection_circle.update_color()
+                            if order_id in current_dates:
+                                card.selection_date = current_dates[order_id]
+                                card.update_date_label()
                         card.status_changed.connect(self.on_status_changed)
                         self.orders_layout.addWidget(card)
 
