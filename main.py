@@ -1,7 +1,7 @@
 import sys
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QHBoxLayout, QScrollArea, QMenu, QLabel,
-                            QFrame, QPushButton, QLineEdit)
+                            QFrame, QPushButton, QLineEdit, QGridLayout)
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt6.QtGui import QAction, QFont
 from database import Database
@@ -124,34 +124,64 @@ class OrderCard(QFrame):
         content_layout.setContentsMargins(10, 8, 10, 8)
         content_layout.setSpacing(4)
         
-        # اسم العميل ورقم الهاتف والحالة
-        header_layout = QHBoxLayout()
+        # استخدام Grid Layout للتنسيق كجدول
+        header_layout = QGridLayout()
+        header_layout.setSpacing(0)
+        header_layout.setContentsMargins(0, 0, 0, 0)
         
-        # اسم العميل ورقم الهاتف
-        name_phone_layout = QHBoxLayout()
+        # اسم العميل - عامود 0
         name_label = QLabel(self.order_data['customer_name'])
-        name_label.setStyleSheet("font-size: 10pt; font-weight: bold; color: #333;")
-        name_phone_layout.addWidget(name_label)
+        name_label.setStyleSheet("""
+            font-size: 10pt;
+            font-weight: bold;
+            color: #333;
+            padding-right: 15px;
+            min-width: 150px;
+        """)
+        name_label.setFixedWidth(200)
+        header_layout.addWidget(name_label, 0, 0)
         
-        phone_label = QLabel(f"<b>{self.order_data['customer_phone']}</b> |")
-        phone_label.setStyleSheet("font-size: 9pt; color: #666; padding: 0 8px;")
+        # رقم الجوال - عامود 1
+        phone = str(self.order_data['customer_phone'])
+        if phone.startswith('0'):
+            phone = '966' + phone[1:]
+        elif not phone.startswith('966'):
+            phone = '966' + phone
+            
+        formatted_phone = ' '.join([phone[:3], phone[3:6], phone[6:]])
+        phone_label = QLabel(f"<b>{formatted_phone}</b> |")
+        phone_label.setStyleSheet("""
+            font-size: 9pt;
+            color: #666;
+            padding: 0 15px;
+            font-family: monospace;
+            min-width: 130px;
+        """)
+        phone_label.setFixedWidth(150)
         phone_label.setTextFormat(Qt.TextFormat.RichText)
-        name_phone_layout.addWidget(phone_label)
+        header_layout.addWidget(phone_label, 0, 1)
         
-        header_layout.addLayout(name_phone_layout)
+        # إضافة حاوية للحالة لضمان التنسيق الصحيح
+        status_container = QWidget()
+        status_layout = QHBoxLayout(status_container)
+        status_layout.setContentsMargins(0, 0, 0, 0)
+        status_layout.addStretch()
         
-        # الحالة
+        # الحالة - عامود 2
         status_text = STATUS_TRANSLATIONS.get(status, status)
         status_label = QLabel(status_text)
         status_label.setStyleSheet(f"""
             color: {STATUS_COLORS.get(status, '#666')};
             font-size: 9pt;
             padding: 1px 6px;
-            background: #f5f5f5;
             border-radius: 3px;
         """)
-        header_layout.addStretch()
-        header_layout.addWidget(status_label)
+        status_layout.addWidget(status_label)
+        header_layout.addWidget(status_container, 0, 2)
+        
+        # إضافة stretch للمسافة المتبقية
+        header_layout.setColumnStretch(2, 1)
+        
         content_layout.addLayout(header_layout)
         
         # عروض الأسعار
