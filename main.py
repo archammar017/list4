@@ -66,8 +66,36 @@ class SidebarButton(QPushButton):
             }
         """)
 
+class SelectionCircle(QLabel):
+    clicked = pyqtSignal()
+    
+    def __init__(self, selected=False, parent=None):
+        super().__init__(parent)
+        self.setObjectName("selectionCircle")
+        self.setProperty("selected", "true" if selected else "false")
+        self.setStyleSheet("""
+            QLabel#selectionCircle {
+                min-width: 20px;
+                min-height: 20px;
+                max-width: 20px;
+                max-height: 20px;
+                border-radius: 10px;
+                border: 2px solid #ddd;
+                background-color: white;
+            }
+            QLabel#selectionCircle[selected="true"] {
+                background-color: #28a745;
+                border-color: #28a745;
+            }
+        """)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+
 class OrderCard(QFrame):
-    status_changed = pyqtSignal(int, str)  # order_id, new_status
+    status_changed = pyqtSignal(int, str)
     
     def __init__(self, order_data, available_statuses, parent=None):
         super().__init__(parent)
@@ -86,19 +114,6 @@ class OrderCard(QFrame):
             }
             QFrame:hover {
                 background-color: #f8f9fa;
-            }
-            QLabel#selectionCircle {
-                min-width: 20px;
-                min-height: 20px;
-                max-width: 20px;
-                max-height: 20px;
-                border-radius: 10px;
-                border: 2px solid #ddd;
-                background-color: white;
-            }
-            QLabel#selectionCircle[selected="true"] {
-                background-color: #28a745;
-                border-color: #28a745;
             }
         """)
         
@@ -120,9 +135,8 @@ class OrderCard(QFrame):
         main_layout.addWidget(status_bar)
         
         # دائرة التحديد
-        self.selection_circle = QLabel()
-        self.selection_circle.setObjectName("selectionCircle")
-        self.selection_circle.setProperty("selected", "true" if self.selected else "false")
+        self.selection_circle = SelectionCircle(self.selected)
+        self.selection_circle.clicked.connect(self.toggle_selection)
         
         # إضافة padding للدائرة
         circle_container = QWidget()
@@ -143,6 +157,69 @@ class OrderCard(QFrame):
         
         main_layout.addWidget(content_widget)
         
+    def mousePressEvent(self, event):
+        # نلغي تفعيل الضغط على الكرت
+        super().mousePressEvent(event)
+        
+    def mouseDoubleClickEvent(self, event):
+        # فتح نافذة تفاصيل الطلب
+        details_dialog = OrderDetailsDialog(self.order_data['ID'], self.db)
+        details_dialog.exec()
+        
+    def contextMenuEvent(self, event):
+        context_menu = QMenu(self)
+        context_menu.setStyleSheet("""
+            QMenu {
+                background-color: white;
+                border: 1px solid #ddd;
+            }
+            QMenu::item {
+                padding: 6px 20px;
+            }
+            QMenu::item:selected {
+                background-color: #f0f0f0;
+            }
+        """)
+        
+        for status in self.available_statuses:
+            if status != self.order_data['Accept_Reject']:
+                action = QAction(STATUS_TRANSLATIONS.get(status, status), self)
+                action.triggered.connect(lambda checked, s=status: self.change_status(s))
+                context_menu.addAction(action)
+            
+        context_menu.exec(event.globalPos())
+    
+    def toggle_selection(self):
+        self.selected = not self.selected
+        self.selection_circle.setProperty("selected", "true" if self.selected else "false")
+        self.selection_circle.style().unpolish(self.selection_circle)
+        self.selection_circle.style().polish(self.selection_circle)
+        self.save_selection_state()
+        
+    def load_selection_state(self):
+        try:
+            if os.path.exists('selected_cards.json'):
+                with open('selected_cards.json', 'r') as f:
+                    selections = json.load(f)
+                    self.selected = selections.get(str(self.order_data['ID']), False)
+        except Exception as e:
+            print(f"Error loading selection state: {e}")
+            self.selected = False
+            
+    def save_selection_state(self):
+        try:
+            selections = {}
+            if os.path.exists('selected_cards.json'):
+                with open('selected_cards.json', 'r') as f:
+                    selections = json.load(f)
+            
+            selections[str(self.order_data['ID'])] = self.selected
+            
+            with open('selected_cards.json', 'w') as f:
+                json.dump(selections, f)
+        except Exception as e:
+            print(f"Error saving selection state: {e}")
+    
     def setup_content(self, content_layout):
         # استخدام Grid Layout للتنسيق كجدول
         header_layout = QGridLayout()
@@ -236,70 +313,6 @@ class OrderCard(QFrame):
             groups_layout.addStretch()
             content_layout.addLayout(groups_layout)
         
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.toggle_selection()
-        super().mousePressEvent(event)
-        
-    def mouseDoubleClickEvent(self, event):
-        # فتح نافذة تفاصيل الطلب
-        details_dialog = OrderDetailsDialog(self.order_data['ID'], self.db)
-        details_dialog.exec()
-        
-    def contextMenuEvent(self, event):
-        context_menu = QMenu(self)
-        context_menu.setStyleSheet("""
-            QMenu {
-                background-color: white;
-                border: 1px solid #ddd;
-            }
-            QMenu::item {
-                padding: 6px 20px;
-            }
-            QMenu::item:selected {
-                background-color: #f0f0f0;
-            }
-        """)
-        
-        for status in self.available_statuses:
-            if status != self.order_data['Accept_Reject']:
-                action = QAction(STATUS_TRANSLATIONS.get(status, status), self)
-                action.triggered.connect(lambda checked, s=status: self.change_status(s))
-                context_menu.addAction(action)
-            
-        context_menu.exec(event.globalPos())
-    
-    def toggle_selection(self):
-        self.selected = not self.selected
-        self.selection_circle.setProperty("selected", "true" if self.selected else "false")
-        self.selection_circle.style().unpolish(self.selection_circle)
-        self.selection_circle.style().polish(self.selection_circle)
-        self.save_selection_state()
-        
-    def load_selection_state(self):
-        try:
-            if os.path.exists('selected_cards.json'):
-                with open('selected_cards.json', 'r') as f:
-                    selections = json.load(f)
-                    self.selected = selections.get(str(self.order_data['ID']), False)
-        except Exception as e:
-            print(f"Error loading selection state: {e}")
-            self.selected = False
-            
-    def save_selection_state(self):
-        try:
-            selections = {}
-            if os.path.exists('selected_cards.json'):
-                with open('selected_cards.json', 'r') as f:
-                    selections = json.load(f)
-            
-            selections[str(self.order_data['ID'])] = self.selected
-            
-            with open('selected_cards.json', 'w') as f:
-                json.dump(selections, f)
-        except Exception as e:
-            print(f"Error saving selection state: {e}")
-    
     def change_status(self, new_status):
         # حفظ الحالة القديمة للرجوع إليها في حالة الفشل
         old_status = self.order_data['Accept_Reject']
