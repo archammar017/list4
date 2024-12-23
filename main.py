@@ -107,8 +107,9 @@ class OrderCard(QFrame):
         self.db = Database()
         self.context_menu = None
         self.status_actions = []
+        self.update_thread = None
         self.load_selection_state()
-        self.load_selection_date()  # تحميل التاريخ
+        self.load_selection_date()
         
         # تطبيق ستايل الكرت
         self.setStyleSheet("""
@@ -408,16 +409,23 @@ class OrderCard(QFrame):
             content_layout.addLayout(groups_layout)
         
     def change_status(self, new_status):
-        # حفظ الحالة القديمة للرجوع إليها في حالة الفشل
+        """تغيير حالة الطلب"""
+        if new_status == self.order_data['Accept_Reject']:
+            return
+            
         old_status = self.order_data['Accept_Reject']
-        
-        # تحديث واجهة المستخدم فوراً
         self.order_data['Accept_Reject'] = new_status
+        
+        # تحديث الواجهة
         self.setup_content(self.layout().itemAt(2).widget().layout())
         self.status_changed.emit(self.order_data['ID'], new_status)
         
+        # إذا كان هناك thread قديم، ننتظر انتهاءه
+        if self.update_thread and self.update_thread.isRunning():
+            self.update_thread.wait()
+        
         # تحديث قاعدة البيانات في الخلفية
-        self.update_thread = StatusUpdateThread(Database(), self.order_data['ID'], new_status)
+        self.update_thread = StatusUpdateThread(self.db, self.order_data['ID'], new_status)
         self.update_thread.status_updated.connect(lambda success, order_id, status: 
             self.handle_status_update(success, order_id, status, old_status))
         self.update_thread.start()
@@ -458,8 +466,10 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.db = Database()
         self.available_statuses = self.db.get_order_statuses()
-        self.orders_cache = []  
-        self.current_filter = 'Pending'  
+        self.orders_cache = []
+        self.current_filter = 'Pending'
+        self.show_selected_only = False
+        self.sort_descending = True  # ترتيب تنازلي افتراضياً
         self.search_text = ''
         self.setup_ui()
         self.load_orders()
@@ -467,21 +477,22 @@ class MainWindow(QMainWindow):
         # إعداد المؤقت للتحديث التلقائي
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self.load_orders)
-        self.update_timer.start(60000)  
+        self.update_timer.start(60000)
 
     def setup_ui(self):
         self.setWindowTitle("نظام إدارة طلبات التصميم")
-        self.setMinimumSize(800, 600)  
+        self.setMinimumSize(800, 600)
         
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        main_layout = QHBoxLayout(central_widget)
+        # الحاوية الرئيسية
+        main_widget = QWidget()
+        self.setCentralWidget(main_widget)
+        main_layout = QHBoxLayout(main_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
         
-        # القائمة الجانبية
+        # الشريط الجانبي
         sidebar = QWidget()
-        sidebar.setFixedWidth(200)  
+        sidebar.setFixedWidth(200)
         sidebar.setStyleSheet("""
             QWidget {
                 background-color: #f8f9fa;
@@ -494,7 +505,42 @@ class MainWindow(QMainWindow):
         
         # إنشاء مجموعة للأزرار
         self.button_group = QButtonGroup(self)
-        self.button_group.setExclusive(True)  # يضمن أن زر واحد فقط يمكن تحديده
+        self.button_group.setExclusive(True)
+        
+        # زر المحددة مع قائمة الترتيب
+        selected_container = QWidget()
+        selected_layout = QHBoxLayout(selected_container)
+        selected_layout.setContentsMargins(0, 0, 0, 0)
+        selected_layout.setSpacing(0)
+        
+        selected_button = SidebarButton("المحددة")
+        selected_button.setCheckable(True)
+        selected_button.clicked.connect(self.toggle_selected_filter)
+        selected_layout.addWidget(selected_button)
+        
+        sort_button = QPushButton("⇅")  # زر الترتيب
+        sort_button.setFixedWidth(30)
+        sort_button.setStyleSheet("""
+            QPushButton {
+                border: none;
+                background: transparent;
+                color: #666;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #e9ecef;
+            }
+        """)
+        sort_button.clicked.connect(self.toggle_sort_order)
+        selected_layout.addWidget(sort_button)
+        
+        sidebar_layout.addWidget(selected_container)
+        
+        # فاصل
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setStyleSheet("background-color: #dee2e6; margin: 5px 10px;")
+        sidebar_layout.addWidget(separator)
         
         # زر جميع الطلبات
         all_button = SidebarButton("جميع الطلبات")
@@ -583,7 +629,7 @@ class MainWindow(QMainWindow):
     
     def update_orders(self, orders):
         try:
-            self.orders_cache = orders  # تحديث الكاش
+            self.orders_cache = orders
             
             # حفظ حالة التحديد والتواريخ للكروت الحالية
             current_selections = {}
@@ -602,23 +648,44 @@ class MainWindow(QMainWindow):
                 if item.widget():
                     item.widget().deleteLater()
 
-            # إضافة الكروت الجديدة مع الحفاظ على حالة التحديد والتواريخ
+            # تجهيز قائمة الكروت مع تواريخها
+            cards_data = []
             for order in orders:
-                if self.current_filter == 'all' or order['Accept_Reject'] == self.current_filter:
-                    if self.search_text.lower() in order.get('customer_name', '').lower() or \
-                       self.search_text.lower() in str(order.get('customer_phone', '')).lower():
-                        card = OrderCard(order, self.available_statuses)
-                        # استعادة حالة التحديد والتاريخ
-                        order_id = str(order['ID'])
-                        if order_id in current_selections:
-                            card.selection_level = current_selections[order_id]
-                            card.selection_circle.level = card.selection_level
-                            card.selection_circle.update_color()
-                            if order_id in current_dates:
-                                card.selection_date = current_dates[order_id]
-                                card.update_date_label()
-                        card.status_changed.connect(self.on_status_changed)
-                        self.orders_layout.addWidget(card)
+                # فحص الفلتر الحالي
+                status_filter = self.current_filter == 'all' or order['Accept_Reject'] == self.current_filter
+                # فحص البحث
+                search_filter = self.search_text.lower() in order.get('customer_name', '').lower() or \
+                              self.search_text.lower() in str(order.get('customer_phone', '')).lower()
+                # فحص التحديد
+                order_id = str(order['ID'])
+                selection_level = current_selections.get(order_id, 0)
+                selected_filter = not self.show_selected_only or selection_level > 0
+
+                if status_filter and search_filter and selected_filter:
+                    selection_date = current_dates.get(order_id)
+                    cards_data.append((order, selection_level, selection_date))
+
+            # ترتيب الكروت حسب التاريخ إذا كان فلتر المحددة مفعل
+            if self.show_selected_only:
+                cards_data.sort(
+                    key=lambda x: x[2] if x[2] else "0",  # استخدام التاريخ للترتيب
+                    reverse=self.sort_descending  # ترتيب تنازلي أو تصاعدي
+                )
+
+            # إضافة الكروت المرتبة
+            for order, selection_level, _ in cards_data:
+                card = OrderCard(order, self.available_statuses)
+                order_id = str(order['ID'])
+                # استعادة حالة التحديد والتاريخ
+                if order_id in current_selections:
+                    card.selection_level = current_selections[order_id]
+                    card.selection_circle.level = card.selection_level
+                    card.selection_circle.update_color()
+                    if order_id in current_dates:
+                        card.selection_date = current_dates[order_id]
+                        card.update_date_label()
+                card.status_changed.connect(self.on_status_changed)
+                self.orders_layout.addWidget(card)
 
             # إضافة widget فارغ في النهاية لدفع الكروت للأعلى
             spacer = QWidget()
@@ -652,31 +719,53 @@ class MainWindow(QMainWindow):
         self.search_text = self.search_input.text().lower()
         self.update_orders(self.orders_cache)
 
+    def toggle_selected_filter(self):
+        """تبديل فلتر العناصر المحددة"""
+        self.show_selected_only = not self.show_selected_only
+        self.update_orders(self.orders_cache)
+
+    def toggle_sort_order(self):
+        """تبديل اتجاه الترتيب"""
+        self.sort_descending = not self.sort_descending
+        self.update_orders(self.orders_cache)
+    
     def close_application(self):
         try:
             # إيقاف المؤقت
             self.update_timer.stop()
             
+            # انتظار انتهاء جميع الـ threads
+            for i in range(self.orders_layout.count()):
+                widget = self.orders_layout.itemAt(i).widget()
+                if isinstance(widget, OrderCard) and hasattr(widget, 'update_thread'):
+                    if widget.update_thread and widget.update_thread.isRunning():
+                        widget.update_thread.wait()
+            
             # إغلاق اتصال قاعدة البيانات
-            if hasattr(self, 'db'):
-                self.db.close_connection()
+            self.db.close_connection()
             
-            # إغلاق النافذة
+            # إغلاق التطبيق
             self.close()
-            
-            # إنهاء التطبيق
             QApplication.quit()
         except Exception as e:
-            print(f"Error during application closure: {e}")
-            
+            print(f"Error closing application: {e}")
+            self.close()
+            QApplication.quit()
+
     def closeEvent(self, event):
         try:
             # إيقاف المؤقت
             self.update_timer.stop()
             
+            # انتظار انتهاء جميع الـ threads
+            for i in range(self.orders_layout.count()):
+                widget = self.orders_layout.itemAt(i).widget()
+                if isinstance(widget, OrderCard) and hasattr(widget, 'update_thread'):
+                    if widget.update_thread and widget.update_thread.isRunning():
+                        widget.update_thread.wait()
+            
             # إغلاق اتصال قاعدة البيانات
-            if hasattr(self, 'db'):
-                self.db.close_connection()
+            self.db.close_connection()
                 
             event.accept()
         except Exception as e:
