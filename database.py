@@ -106,18 +106,16 @@ class Database:
         return order if order else {}
 
     def get_order_statuses(self):
-        if not self.connection or not self.connection.is_connected():
-            self.connect()
-            
-        cursor = self.connection.cursor()
-        query = "SHOW COLUMNS FROM orders LIKE 'Accept_Reject'"
-        cursor.execute(query)
-        result = cursor.fetchone()
+        return ["Pending", "Accepted", "Rejected"]
         
-        enum_str = result[1]
-        statuses = enum_str.replace('enum(', '').replace(')', '').replace("'", '').split(',')
-        cursor.close()
-        return statuses
+    def close_connection(self):
+        """إغلاق اتصال قاعدة البيانات بشكل آمن"""
+        try:
+            if self.connection and self.connection.is_connected():
+                self.connection.close()
+                print("Database connection closed successfully")
+        except Error as e:
+            print(f"Error closing database connection: {e}")
 
     def get_custom_groups(self):
         if not self.connection or not self.connection.is_connected():

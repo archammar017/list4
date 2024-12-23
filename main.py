@@ -341,8 +341,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.db = Database()
         self.available_statuses = self.db.get_order_statuses()
-        self.orders_cache = []  # تغيير من dict إلى list
-        self.current_filter = 'Pending'  # تعيين الفلتر الافتراضي إلى قيد المراجعة
+        self.orders_cache = []  
+        self.current_filter = 'Pending'  
         self.search_text = ''
         self.setup_ui()
         self.load_orders()
@@ -350,7 +350,7 @@ class MainWindow(QMainWindow):
         # إعداد المؤقت للتحديث التلقائي
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self.load_orders)
-        self.update_timer.start(60000)  # تحديث كل دقيقة
+        self.update_timer.start(60000)  
 
     def setup_ui(self):
         self.setWindowTitle("نظام إدارة طلبات التصميم")
@@ -364,26 +364,64 @@ class MainWindow(QMainWindow):
         
         # القائمة الجانبية
         sidebar = QWidget()
-        sidebar.setFixedWidth(160)  
-        sidebar.setStyleSheet("background-color: white; border-left: 1px solid #e0e0e0;")
+        sidebar.setFixedWidth(200)  
+        sidebar.setStyleSheet("""
+            QWidget {
+                background-color: #f8f9fa;
+                border-left: 1px solid #dee2e6;
+            }
+            QPushButton {
+                text-align: right;
+                padding: 8px 15px;
+                border: none;
+                border-radius: 0;
+                background-color: transparent;
+            }
+            QPushButton:hover {
+                background-color: #e9ecef;
+            }
+            QPushButton:checked {
+                background-color: #0078D4;
+                color: white;
+            }
+            QPushButton#closeButton {
+                background-color: #dc3545;
+                color: white;
+                margin: 10px;
+                border-radius: 4px;
+                text-align: center;
+            }
+            QPushButton#closeButton:hover {
+                background-color: #c82333;
+            }
+        """)
         sidebar_layout = QVBoxLayout(sidebar)
-        sidebar_layout.setContentsMargins(0, 6, 0, 6)
-        sidebar_layout.setSpacing(1)
+        sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        sidebar_layout.setSpacing(0)
         
-        all_orders_btn = SidebarButton("جميع الطلبات")
-        all_orders_btn.clicked.connect(lambda: self.show_all_orders())
-        sidebar_layout.addWidget(all_orders_btn)
+        # إضافة أزرار التصفية
+        all_button = SidebarButton("جميع الطلبات")
+        all_button.setCheckable(True)
+        all_button.clicked.connect(self.show_all_orders)
+        sidebar_layout.addWidget(all_button)
         
+        # إضافة أزرار لكل حالة
         for status in self.available_statuses:
             btn = SidebarButton(STATUS_TRANSLATIONS.get(status, status))
             btn.setCheckable(True)
-            # تفعيل زر "قيد المراجعة" عند بدء التشغيل
             if status == 'Pending':
                 btn.setChecked(True)
             btn.clicked.connect(lambda checked, s=status: self.filter_by_status(s))
             sidebar_layout.addWidget(btn)
         
         sidebar_layout.addStretch()
+        
+        # زر الإغلاق
+        close_button = QPushButton("إغلاق البرنامج")
+        close_button.setObjectName("closeButton")
+        close_button.clicked.connect(self.close_application)
+        sidebar_layout.addWidget(close_button)
+        
         main_layout.addWidget(sidebar)
         
         # منطقة الطلبات
@@ -436,7 +474,7 @@ class MainWindow(QMainWindow):
     
     def update_orders(self, orders):
         try:
-            self.orders_cache = orders  # تحديث الكاش
+            self.orders_cache = orders  
             # حذف جميع الكروت الموجودة
             while self.orders_layout.count():
                 item = self.orders_layout.takeAt(0)
@@ -484,6 +522,37 @@ class MainWindow(QMainWindow):
         self.search_text = self.search_input.text().lower()
         self.update_orders(self.orders_cache)
 
+    def close_application(self):
+        try:
+            # إيقاف المؤقت
+            self.update_timer.stop()
+            
+            # إغلاق اتصال قاعدة البيانات
+            if hasattr(self, 'db'):
+                self.db.close_connection()
+            
+            # إغلاق النافذة
+            self.close()
+            
+            # إنهاء التطبيق
+            QApplication.quit()
+        except Exception as e:
+            print(f"Error during application closure: {e}")
+            
+    def closeEvent(self, event):
+        try:
+            # إيقاف المؤقت
+            self.update_timer.stop()
+            
+            # إغلاق اتصال قاعدة البيانات
+            if hasattr(self, 'db'):
+                self.db.close_connection()
+                
+            event.accept()
+        except Exception as e:
+            print(f"Error during window closure: {e}")
+            event.accept()
+            
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     app.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
