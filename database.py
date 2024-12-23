@@ -114,3 +114,28 @@ class Database:
         groups = cursor.fetchall()
         cursor.close()
         return groups
+
+    def get_recently_changed_orders(self):
+        """جلب الطلبات التي تم تحديثها مؤخراً"""
+        query = """
+            SELECT 
+                ID,
+                Accept_Reject,
+                Date,
+                Customer_Name as customer_name,
+                Customer_Phone as customer_phone,
+                Customer_Email as customer_email
+            FROM orders
+            WHERE LastModified >= NOW() - INTERVAL 30 SECOND
+            ORDER BY Date DESC
+        """
+        
+        try:
+            cursor = self.connection.cursor(dictionary=True)
+            cursor.execute(query)
+            return cursor.fetchall()
+        except Exception as e:
+            print(f"Error fetching recently changed orders: {e}")
+            return []
+        finally:
+            cursor.close()
