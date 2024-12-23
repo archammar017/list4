@@ -513,7 +513,7 @@ class MainWindow(QMainWindow):
         selected_layout.setContentsMargins(0, 0, 0, 0)
         selected_layout.setSpacing(0)
         
-        selected_button = SidebarButton("المحددة")
+        selected_button = SidebarButton("تم الاتصال")
         selected_button.setCheckable(True)
         selected_button.clicked.connect(self.toggle_selected_filter)
         selected_layout.addWidget(selected_button)
