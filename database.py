@@ -3,9 +3,13 @@ from dotenv import load_dotenv
 import mysql.connector
 from mysql.connector import Error
 
+# تحميل المتغيرات البيئية من الملف
+# استخدام المسار الكامل للملف
+env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+load_dotenv(env_path)
+
 class Database:
     def __init__(self):
-        load_dotenv()
         self.host = os.getenv('DB_HOST')
         self.user = os.getenv('DB_USER')
         self.password = os.getenv('DB_PASSWORD')
@@ -20,7 +24,8 @@ class Database:
                 user=self.user,
                 password=self.password,
                 database=self.database,
-                port=self.port
+                port=self.port,
+                auth_plugin='mysql_native_password'
             )
             return True
         except Error as e:
