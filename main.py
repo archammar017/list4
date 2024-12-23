@@ -124,12 +124,23 @@ class OrderCard(QFrame):
         content_layout.setContentsMargins(10, 8, 10, 8)
         content_layout.setSpacing(4)
         
-        # اسم العميل والحالة
+        # اسم العميل ورقم الهاتف والحالة
         header_layout = QHBoxLayout()
+        
+        # اسم العميل ورقم الهاتف
+        name_phone_layout = QHBoxLayout()
         name_label = QLabel(self.order_data['customer_name'])
         name_label.setStyleSheet("font-size: 10pt; font-weight: bold; color: #333;")
-        header_layout.addWidget(name_label)
+        name_phone_layout.addWidget(name_label)
         
+        phone_label = QLabel(f"<b>{self.order_data['customer_phone']}</b> |")
+        phone_label.setStyleSheet("font-size: 9pt; color: #666; padding: 0 8px;")
+        phone_label.setTextFormat(Qt.TextFormat.RichText)
+        name_phone_layout.addWidget(phone_label)
+        
+        header_layout.addLayout(name_phone_layout)
+        
+        # الحالة
         status_text = STATUS_TRANSLATIONS.get(status, status)
         status_label = QLabel(status_text)
         status_label.setStyleSheet(f"""
@@ -143,28 +154,24 @@ class OrderCard(QFrame):
         header_layout.addWidget(status_label)
         content_layout.addLayout(header_layout)
         
-        # معلومات الاتصال والتاريخ في سطر واحد
-        info_layout = QHBoxLayout()
-        
-        # رقم الهاتف وعروض الأسعار
-        contact_info = QLabel(self.order_data['customer_phone'])
+        # عروض الأسعار
         if self.order_data.get('Offers'):
+            offers_layout = QHBoxLayout()
             offers = self.order_data['Offers'].replace(';', ' | ')
-            contact_info.setText(f"{self.order_data['customer_phone']}     |     {offers}")
-        contact_info.setStyleSheet("""
-            color: #666;
-            font-size: 9pt;
-            padding: 2px 0;
-        """)
-        info_layout.addWidget(contact_info)
-        
-        info_layout.addStretch()
-        
-        date_label = QLabel(self.order_data['Date'].strftime('%Y-%m-%d'))
-        date_label.setStyleSheet("color: #666; font-size: 8pt;")
-        info_layout.addWidget(date_label)
-        
-        content_layout.addLayout(info_layout)
+            offers_label = QLabel(offers)
+            offers_label.setStyleSheet("""
+                color: #666;
+                font-size: 9pt;
+                padding: 2px 0;
+            """)
+            offers_layout.addWidget(offers_label)
+            offers_layout.addStretch()
+            
+            date_label = QLabel(self.order_data['Date'].strftime('%Y-%m-%d'))
+            date_label.setStyleSheet("color: #666; font-size: 8pt;")
+            offers_layout.addWidget(date_label)
+            
+            content_layout.addLayout(offers_layout)
         
         # المجموعات (إذا وجدت)
         if self.order_data.get('custom_groups'):
