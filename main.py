@@ -85,11 +85,9 @@ class OrderCard(QFrame):
                 background-color: white;
                 border-radius: 4px;
                 margin: 2px 6px;
-                box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
             }}
             QFrame:hover {{
                 background-color: #fafafa;
-                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
             }}
         """)
         

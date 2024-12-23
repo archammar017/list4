@@ -44,6 +44,7 @@ class Database:
             JOIN clientdata c ON o.Client_ID = c.ID
             LEFT JOIN task_group_assignments tga ON o.ID = tga.order_id
             LEFT JOIN custom_groups cg ON tga.group_id = cg.id
+            WHERE o.Offers IS NOT NULL AND o.Offers != ''
             GROUP BY o.ID
             ORDER BY o.Date DESC
         """
