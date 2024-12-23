@@ -145,10 +145,17 @@ class OrderCard(QFrame):
         
         # معلومات الاتصال والتاريخ في سطر واحد
         info_layout = QHBoxLayout()
-        contact_info = QLabel(f"{self.order_data['customer_phone']}")
-        if self.order_data.get('customer_email'):
-            contact_info.setText(f"{self.order_data['customer_phone']} | {self.order_data['customer_email']}")
-        contact_info.setStyleSheet("color: #666; font-size: 9pt;")
+        
+        # رقم الهاتف وعروض الأسعار
+        contact_info = QLabel(self.order_data['customer_phone'])
+        if self.order_data.get('Offers'):
+            offers = self.order_data['Offers'].replace(';', ' | ')
+            contact_info.setText(f"{self.order_data['customer_phone']}     |     {offers}")
+        contact_info.setStyleSheet("""
+            color: #666;
+            font-size: 9pt;
+            padding: 2px 0;
+        """)
         info_layout.addWidget(contact_info)
         
         info_layout.addStretch()

@@ -161,19 +161,37 @@ class OrderDetailsDialog(QDialog):
                     border-radius: 5px;
                 }
             """)
-            offers_layout = QHBoxLayout(offers_container)  
+            offers_layout = QHBoxLayout(offers_container)
             offers_layout.setContentsMargins(10, 8, 10, 8)
-            offers_layout.setSpacing(15)  
+            offers_layout.setSpacing(10)
             
             # تقسيم العروض على أساس الفاصلة المنقوطة
             offers = [offer.strip() for offer in self.order_data['Offers'].split(';') if offer.strip()]
-            offer_label = QLabel(" | ".join(offers))  
-            offer_label.setWordWrap(True)
-            offer_label.setStyleSheet("""
-                color: #2c3e50;
-                padding: 5px;
-            """)
-            offers_layout.addWidget(offer_label)
+            
+            for offer in offers:
+                offer_box = QWidget()
+                offer_box.setStyleSheet("""
+                    QWidget {
+                        background-color: #f8f9fa;
+                        border: 1px solid #dee2e6;
+                        border-radius: 4px;
+                    }
+                """)
+                box_layout = QVBoxLayout(offer_box)
+                box_layout.setContentsMargins(8, 6, 8, 6)
+                
+                offer_label = QLabel(offer)
+                offer_label.setStyleSheet("""
+                    color: #2c3e50;
+                    padding: 2px;
+                """)
+                offer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                box_layout.addWidget(offer_label)
+                
+                offers_layout.addWidget(offer_box)
+            
+            # إضافة spacer في النهاية لدفع المربعات للجهة اليمنى
+            offers_layout.addStretch()
             
             self.content_layout.addWidget(offers_container)
         else:
