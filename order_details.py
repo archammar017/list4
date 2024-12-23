@@ -161,15 +161,17 @@ class OrderDetailsDialog(QDialog):
                     border-radius: 5px;
                 }
             """)
-            offers_layout = QVBoxLayout(offers_container)
+            offers_layout = QHBoxLayout(offers_container)  
             offers_layout.setContentsMargins(10, 8, 10, 8)
-            offers_layout.setSpacing(5)
+            offers_layout.setSpacing(15)  
             
-            offer_label = QLabel(str(self.order_data['Offers']))
+            # تقسيم العروض على أساس الفاصلة المنقوطة
+            offers = [offer.strip() for offer in self.order_data['Offers'].split(';') if offer.strip()]
+            offer_label = QLabel(" | ".join(offers))  
             offer_label.setWordWrap(True)
             offer_label.setStyleSheet("""
                 color: #2c3e50;
-                padding: 2px;
+                padding: 5px;
             """)
             offers_layout.addWidget(offer_label)
             
@@ -234,7 +236,7 @@ class OrderDetailsDialog(QDialog):
         
     def create_info_grid(self, fields):
         grid = QGridLayout()
-        grid.setSpacing(15)  # المسافة بين الصفوف والحقول
+        grid.setSpacing(15)  
         grid.setContentsMargins(20, 0, 20, 0)
         
         row = 0
